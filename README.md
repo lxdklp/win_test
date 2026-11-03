@@ -39,6 +39,7 @@ runner 标签依据 [GitHub 官方文档](https://docs.github.com/en/actions/ref
 在对应架构的 Windows 环境安装 Flutter 3.47.9、Visual Studio 2022 的 **Desktop development with C++** 工作负载及 Windows SDK；ARM64 环境还需 ARM64 C++ 工具，并确保 Dart SDK 本身为 ARM64。参见 [官方环境配置说明](https://docs.flutter.dev/platform-integration/windows/setup)。
 
 ```powershell
+$env:PUB_HOSTED_URL = 'https://pub.dev'
 flutter doctor -v
 flutter pub get --enforce-lockfile
 flutter run -d windows
@@ -46,5 +47,7 @@ flutter build windows --release
 ```
 
 输出路径为 `build/windows/x64/runner/Release/` 或 `build/windows/arm64/runner/Release/`。
+
+锁文件和 CI 统一使用 `https://pub.dev`。如果本机配置了 `PUB_HOSTED_URL=https://pub.flutter-io.cn` 等镜像源，请在此项目的终端中先切换到上述官方源；macOS/Linux 使用 `export PUB_HOSTED_URL=https://pub.dev`。包源 URL 也是依赖标识的一部分，即使版本号相同，源地址变化也会导致 `--enforce-lockfile` 失败。不要将镜像源生成的锁文件直接提交给使用官方源的 CI；需要恢复时，在官方源下运行一次 `flutter pub get`，检查并提交锁文件变更。参见 [Pub 环境变量](https://dart.dev/tools/pub/environment-variables)和 [锁文件校验](https://dart.dev/tools/pub/cmd/pub-get#--enforce-lockfile)。
 
 项目创建于 macOS；Windows 原生编译结果需要以 GitHub Actions 实际运行结果为准。
