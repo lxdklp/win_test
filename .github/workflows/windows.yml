@@ -1,0 +1,90 @@
+name: Build Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.9'
+  CI: 'true'
+
+jobs:
+  build:
+    name: Windows ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+          - arch: arm64
+            runner: windows-11-arm
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Bootstrap from source so Flutter downloads the native Dart SDK.
+      # An SDK archive containing x64 Dart would also target x64 on an ARM host.
+      - name: Install Flutter
+        run: |
+          $flutterRoot = Join-Path $env:RUNNER_TEMP 'flutter'
+          git clone --depth 1 --branch $env:FLUTTER_VERSION https://github.com/flutter/flutter.git $flutterRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$flutterRoot\bin" >> $env:GITHUB_PATH
+          "FLUTTER_ROOT=$flutterRoot" >> $env:GITHUB_ENV
+          & "$flutterRoot\bin\flutter.bat" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify native Dart architecture
+        run: >-
+          ./scripts/verify-pe.ps1
+          -Path "$env:FLUTTER_ROOT/bin/cache/dart-sdk/bin/dart.exe"
+          -Architecture '${{ matrix.arch }}'
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Show toolchain diagnostics
+        run: flutter doctor -v
+
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib
+
+      - name: Analyze
+        run: flutter analyze --no-pub
+
+      # Stable Flutter selects the target from the native Dart host architecture.
+      - name: Build release
+        run: flutter build windows --release --no-pub
+
+      - name: Verify executable and engine architecture
+        run: |
+          $release = 'build/windows/${{ matrix.arch }}/runner/Release'
+          ./scripts/verify-pe.ps1 -Path "$release/win_test.exe" -Architecture '${{ matrix.arch }}'
+          ./scripts/verify-pe.ps1 -Path "$release/flutter_windows.dll" -Architecture '${{ matrix.arch }}'
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: win_test-windows-${{ matrix.arch }}
+          path: build/windows/${{ matrix.arch }}/runner/Release/
+          if-no-files-found: error
+          retention-days: 14
